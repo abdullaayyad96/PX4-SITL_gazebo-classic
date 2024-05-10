@@ -49,18 +49,32 @@
             <uri>__default__</uri>
           </script>
         </material>
+        <plugin name="left_elevon_lift_visual" filename="libForceVisual.so">
+          <topic_name>lift_force/lumped_force</topic_name>
+          <color>Gazebo/Green</color>
+        </plugin>
       </visual>
       <gravity>1</gravity>
       <velocity_decay/>
       <self_collide>0</self_collide>
     </link>
-    <include>
-      <uri>model://imu</uri>
+    <link name='plane/imu_link'>
       <pose>0 0 0 0 0 0</pose>
-      <name>imu</name>
-    </include>
-    <joint name='imu_joint' type='revolute'>
-      <child>imu::link</child>
+      <inertial>
+        <pose>0 0 0 0 0 0</pose>
+        <mass>0.015</mass>
+        <inertia>
+          <ixx>1e-05</ixx>
+          <ixy>0</ixy>
+          <ixz>0</ixz>
+          <iyy>1e-05</iyy>
+          <iyz>0</iyz>
+          <izz>1e-05</izz>
+        </inertia>
+      </inertial>
+    </link>
+    <joint name='plane/imu_joint' type='revolute'>
+      <child>plane/imu_link</child>
       <parent>base_link</parent>
       <axis>
         <xyz>1 0 0</xyz>
@@ -180,10 +194,6 @@
             <uri>__default__</uri>
           </script>
         </material>
-        <plugin name="left_elevon_lift_visual" filename="libForceVisual.so">
-          <topic_name>lift_force/left_elevon</topic_name>
-          <color>Gazebo/Red</color>
-        </plugin>
       </visual>
     </link>
     <link name="right_elevon">
@@ -213,10 +223,6 @@
             <uri>__default__</uri>
           </script>
         </material>
-        <plugin name="right_elevon_lift_visual" filename="libForceVisual.so">
-          <topic_name>lift_force/right_elevon</topic_name>
-          <color>Gazebo/Green</color>
-        </plugin>
       </visual>
     </link>
     <link name="left_flap">
@@ -470,15 +476,6 @@
       <child>gps::link</child>
       <parent>base_link</parent>
     </joint>
-    <include>
-      <uri>model://magnetometer</uri>
-      <pose>0 0 0 0 0 0</pose>
-      <name>mag</name>
-    </include>
-    <joint name='mag_joint' type='fixed'>
-      <child>mag::link</child>
-      <parent>base_link</parent>
-    </joint>
     <plugin name="aircraft" filename="libAdvancedLiftDragPlugin.so">
       <a0>0.0</a0>
       <CL0>0.15188</CL0>
@@ -520,7 +517,7 @@
       <forward>1 0 0</forward>
       <upward>0 0 1</upward>
       <link_name>base_link</link_name>
-      <!--<topic_name>lift_force/left_elevon</topic_name> Uncomment to draw the force -->
+      <topic_name>lift_force/lumped_force</topic_name> <!--Uncomment to draw the force-->
       <num_ctrl_surfaces>4</num_ctrl_surfaces>
       <control_surface>
         <name>left_elevon_joint</name>
@@ -590,6 +587,14 @@
     </plugin>
     <plugin name='groundtruth_plugin' filename='libgazebo_groundtruth_plugin.so'>
       <robotNamespace/>
+    </plugin>
+    <plugin name='magnetometer_plugin' filename='libgazebo_magnetometer_plugin.so'>
+      <robotNamespace/>
+      <pubRate>100</pubRate>
+      <noiseDensity>0.0004</noiseDensity>
+      <randomWalk>6.4e-06</randomWalk>
+      <biasCorrelationTime>600</biasCorrelationTime>
+      <magTopic>/mag</magTopic>
     </plugin>
     <plugin name='barometer_plugin' filename='libgazebo_barometer_plugin.so'>
       <robotNamespace/>
@@ -683,5 +688,18 @@
       </control_channels>
     </plugin>
     <static>0</static>
+    <plugin name='gazebo_imu_plugin' filename='libgazebo_imu_plugin.so'>
+      <robotNamespace></robotNamespace>
+      <linkName>plane/imu_link</linkName>
+      <imuTopic>/imu</imuTopic>
+      <gyroscopeNoiseDensity>0.0003394</gyroscopeNoiseDensity>
+      <gyroscopeRandomWalk>3.8785e-05</gyroscopeRandomWalk>
+      <gyroscopeBiasCorrelationTime>1000.0</gyroscopeBiasCorrelationTime>
+      <gyroscopeTurnOnBiasSigma>0.0087</gyroscopeTurnOnBiasSigma>
+      <accelerometerNoiseDensity>0.004</accelerometerNoiseDensity>
+      <accelerometerRandomWalk>0.006</accelerometerRandomWalk>
+      <accelerometerBiasCorrelationTime>300.0</accelerometerBiasCorrelationTime>
+      <accelerometerTurnOnBiasSigma>0.196</accelerometerTurnOnBiasSigma>
+    </plugin>
   </model>
 </sdf>

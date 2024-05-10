@@ -64,6 +64,7 @@
 #include <Range.pb.h>
 #include <SITLGps.pb.h>
 #include <IRLock.pb.h>
+#include <TargetRelative.pb.h>
 #include <Groundtruth.pb.h>
 #include <Odometry.pb.h>
 #include <MagneticField.pb.h>
@@ -78,8 +79,6 @@ static const std::regex kDefaultLidarModelNaming(".*(lidar|sf10a)(.*)");
 static const std::regex kDefaultSonarModelNaming(".*(sonar|mb1240-xl-ez4)(.*)");
 static const std::regex kDefaultGPSModelNaming(".*(gps|ublox-neo-7M)(.*)");
 static const std::regex kDefaultAirspeedModelJointNaming(".*(airspeed)(.*_joint)");
-static const std::regex kDefaultImuModelJointNaming(".*(imu)(\\d*_joint)");
-static const std::regex kDefaultMagModelJointNaming(".*(mag)(\\d*_joint)");
 
 namespace gazebo {
 
@@ -89,6 +88,7 @@ typedef const boost::shared_ptr<const sensor_msgs::msgs::Airspeed> AirspeedPtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::Groundtruth> GtPtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::Imu> ImuPtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::IRLock> IRLockPtr;
+typedef const boost::shared_ptr<const sensor_msgs::msgs::TargetRelative> TargetRelativePtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::OpticalFlow> OpticalFlowPtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::Range> SonarPtr;
 typedef const boost::shared_ptr<const sensor_msgs::msgs::Range> LidarPtr;
@@ -110,6 +110,8 @@ static const std::string kDefaultMotorVelocityReferencePubTopic = "/gazebo/comma
 static const std::string kDefaultImuTopic = "/imu";
 static const std::string kDefaultOpticalFlowTopic = "/px4flow/link/opticalFlow";
 static const std::string kDefaultIRLockTopic = "/camera/link/irlock";
+static const std::string kDefaultTargetGpsTopic = "/land_pad/link/gps_target";
+static const std::string kDefaultArucoMarkerTopic = "/aruco_cam/link/arucoMarker";
 static const std::string kDefaultVisionTopic = "/vision_odom";
 static const std::string kDefaultMagTopic = "/mag";
 static const std::string kDefaultBarometerTopic = "/baro";
@@ -173,16 +175,18 @@ private:
   event::ConnectionPtr updateConnection_;
   event::ConnectionPtr sigIntConnection_;
 
-  void ImuCallback(ImuPtr& imu_msg, const int& id);
+  void ImuCallback(ImuPtr& imu_msg);
   void GpsCallback(GpsPtr& gps_msg, const int& id);
+  void TargetGpsCallback(GpsPtr& gps_msg);
   void GroundtruthCallback(GtPtr& groundtruth_msg);
   void LidarCallback(LidarPtr& lidar_msg, const int& id);
   void SonarCallback(SonarPtr& sonar_msg, const int& id);
   void AirspeedCallback(AirspeedPtr& airspeed_msg, const int& id);
   void OpticalFlowCallback(OpticalFlowPtr& opticalFlow_msg);
   void IRLockCallback(IRLockPtr& irlock_msg);
+  void targetReleativeCallback(TargetRelativePtr& targetRelative_msg);
   void VisionCallback(OdomPtr& odom_msg);
-  void MagnetometerCallback(MagnetometerPtr& mag_msg, const int& i);
+  void MagnetometerCallback(MagnetometerPtr& mag_msg);
   void BarometerCallback(BarometerPtr& baro_msg);
   void WindVelocityCallback(WindPtr& msg);
   void SendSensorMessages();
@@ -228,6 +232,8 @@ private:
   transport::SubscriberPtr imu_sub_{nullptr};
   transport::SubscriberPtr opticalFlow_sub_{nullptr};
   transport::SubscriberPtr irlock_sub_{nullptr};
+  transport::SubscriberPtr target_gps_sub_{nullptr};
+  transport::SubscriberPtr arucoMarker_sub_{nullptr};
   transport::SubscriberPtr groundtruth_sub_{nullptr};
   transport::SubscriberPtr vision_sub_{nullptr};
   transport::SubscriberPtr mag_sub_{nullptr};
@@ -239,6 +245,8 @@ private:
   std::string imu_sub_topic_{kDefaultImuTopic};
   std::string opticalFlow_sub_topic_{kDefaultOpticalFlowTopic};
   std::string irlock_sub_topic_{kDefaultIRLockTopic};
+  std::string target_gps_sub_topic_{kDefaultTargetGpsTopic};
+  std::string arucoMarker_sub_topic_{kDefaultArucoMarkerTopic};
   std::string groundtruth_sub_topic_{kDefaultGroundtruthTopic};
   std::string vision_sub_topic_{kDefaultVisionTopic};
   std::string mag_sub_topic_{kDefaultMagTopic};

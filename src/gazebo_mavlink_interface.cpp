@@ -128,13 +128,12 @@ void GazeboMavlinkInterface::CreateSensorSubscription(
     if (std::regex_match((*it)->GetName(), model)) {
       // Get sensor joint name (without the ''::joint' suffix)
       const std::string joint_name = (*it)->GetName().substr(0, (*it)->GetName().size() - 6);
-
       const std::string model_name = model_->GetName();
 
       // Get the sensor name from the joint name
       std::string sensor_name = joint_name;
-      std::size_t found = joint_name.find_last_of(":/");
-      if (!(found== std::string::npos)) {
+      std::size_t found = joint_name.find_last_of("::");
+      if (found) {
         sensor_name = joint_name.substr(found + 1);
       }
 
@@ -206,10 +205,14 @@ void GazeboMavlinkInterface::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf
 
   getSdfParam<std::string>(_sdf, "motorSpeedCommandPubTopic", motor_velocity_reference_pub_topic_,
       motor_velocity_reference_pub_topic_);
+  getSdfParam<std::string>(_sdf, "imuSubTopic", imu_sub_topic_, imu_sub_topic_);
   getSdfParam<std::string>(_sdf, "visionSubTopic", vision_sub_topic_, vision_sub_topic_);
   getSdfParam<std::string>(_sdf, "opticalFlowSubTopic",
       opticalFlow_sub_topic_, opticalFlow_sub_topic_);
   getSdfParam<std::string>(_sdf, "irlockSubTopic", irlock_sub_topic_, irlock_sub_topic_);
+  getSdfParam<std::string>(_sdf, "magSubTopic", mag_sub_topic_, mag_sub_topic_);
+  getSdfParam<std::string>(_sdf, "targetGpsSubTopic", target_gps_sub_topic_, target_gps_sub_topic_);
+  getSdfParam<std::string>(_sdf, "arucoMarkerSubTopic", arucoMarker_sub_topic_, arucoMarker_sub_topic_);
   getSdfParam<std::string>(_sdf, "baroSubTopic", baro_sub_topic_, baro_sub_topic_);
   getSdfParam<std::string>(_sdf, "groundtruthSubTopic", groundtruth_sub_topic_, groundtruth_sub_topic_);
 
@@ -417,10 +420,14 @@ void GazeboMavlinkInterface::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf
       boost::bind(&GazeboMavlinkInterface::onSigInt, this));
 
   // Subscribe to messages of other plugins.
+  imu_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + imu_sub_topic_, &GazeboMavlinkInterface::ImuCallback, this);
   opticalFlow_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + opticalFlow_sub_topic_, &GazeboMavlinkInterface::OpticalFlowCallback, this);
   irlock_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + irlock_sub_topic_, &GazeboMavlinkInterface::IRLockCallback, this);
+  target_gps_sub_ = node_handle_->Subscribe("~/" + target_gps_sub_topic_, &GazeboMavlinkInterface::TargetGpsCallback, this);
+  arucoMarker_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + arucoMarker_sub_topic_, &GazeboMavlinkInterface::targetReleativeCallback, this);
   groundtruth_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + groundtruth_sub_topic_, &GazeboMavlinkInterface::GroundtruthCallback, this);
   vision_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + vision_sub_topic_, &GazeboMavlinkInterface::VisionCallback, this);
+  mag_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + mag_sub_topic_, &GazeboMavlinkInterface::MagnetometerCallback, this);
   baro_sub_ = node_handle_->Subscribe("~/" + model_->GetName() + baro_sub_topic_, &GazeboMavlinkInterface::BarometerCallback, this);
   wind_sub_ = node_handle_->Subscribe("~/" + wind_sub_topic_, &GazeboMavlinkInterface::WindVelocityCallback, this);
 
@@ -443,8 +450,6 @@ void GazeboMavlinkInterface::Load(physics::ModelPtr _model, sdf::ElementPtr _sdf
   CreateSensorSubscription(&GazeboMavlinkInterface::SonarCallback, this, joints, nested_model, kDefaultSonarModelNaming);
   CreateSensorSubscription(&GazeboMavlinkInterface::GpsCallback, this, joints, nested_model, kDefaultGPSModelNaming);
   CreateSensorSubscription(&GazeboMavlinkInterface::AirspeedCallback, this, joints, nested_model, kDefaultAirspeedModelJointNaming);
-  CreateSensorSubscription(&GazeboMavlinkInterface::ImuCallback, this, joints, nested_model, kDefaultImuModelJointNaming);
-  CreateSensorSubscription(&GazeboMavlinkInterface::MagnetometerCallback, this, joints, nested_model, kDefaultMagModelJointNaming);
 
   // Publish gazebo's motor_speed message
   motor_velocity_reference_pub_ = node_handle_->Advertise<mav_msgs::msgs::CommandMotorSpeed>("~/" + model_->GetName() + motor_velocity_reference_pub_topic_, 1);
@@ -648,21 +653,18 @@ void GazeboMavlinkInterface::setMavlinkSensorOrientation(const ignition::math::V
 
 }
 
-void GazeboMavlinkInterface::ImuCallback(ImuPtr& imu_message, const int& id)
+void GazeboMavlinkInterface::ImuCallback(ImuPtr& imu_message)
 {
   std::unique_lock<std::mutex> lock(imu_received_mutex_);
-  if (id == 0) {
-    const int64_t diff = imu_message->seq() - last_imu_message_seq_;
-    if (diff != 1 && imu_message->seq() != 0)
-    {
-      gzerr << "Skipped " << (diff - 1) << " IMU samples (presumably CPU usage is too high)\n";
-    }
 
-    last_imu_message_seq_ = imu_message->seq();
+  const int64_t diff = imu_message->seq() - last_imu_message_seq_;
+  if (diff != 1 && imu_message->seq() != 0)
+  {
+    gzerr << "Skipped " << (diff - 1) << " IMU samples (presumably CPU usage is too high)\n";
   }
-  else {
-    lock.unlock();
-  }
+
+  last_imu_message_seq_ = imu_message->seq();
+
   ignition::math::Quaterniond q_gr = ignition::math::Quaterniond(
     imu_message->orientation().w(),
     imu_message->orientation().x(),
@@ -682,14 +684,12 @@ void GazeboMavlinkInterface::ImuCallback(ImuPtr& imu_message, const int& id)
   SensorData::Imu imu_data;
   imu_data.accel_b = Eigen::Vector3d(accel_b.X(), accel_b.Y(), accel_b.Z());
   imu_data.gyro_b = Eigen::Vector3d(gyro_b.X(), gyro_b.Y(), gyro_b.Z());
-  mavlink_interface_->UpdateIMU(imu_data, id);
+  mavlink_interface_->UpdateIMU(imu_data);
 
-  if (id == 0) {
-    imu_received_ = true;
-    imu_received_once_ = true;
-    lock.unlock();
-    imu_received_cond_.notify_one();
-  }
+  imu_received_ = true;
+  imu_received_once_ = true;
+  lock.unlock();
+  imu_received_cond_.notify_one();
 }
 
 void GazeboMavlinkInterface::SendSensorMessages()
@@ -942,8 +942,9 @@ void GazeboMavlinkInterface::SonarCallback(SonarPtr& sonar_message, const int& i
 }
 
 void GazeboMavlinkInterface::IRLockCallback(IRLockPtr& irlock_message) {
+
   mavlink_landing_target_t sensor_msg;
-  sensor_msg.time_usec = irlock_message->time_usec() / 1e3;
+  sensor_msg.time_usec = irlock_message->time_usec();
   sensor_msg.target_num = irlock_message->signature();
   sensor_msg.angle_x = irlock_message->pos_x();
   sensor_msg.angle_y = irlock_message->pos_y();
@@ -958,6 +959,64 @@ void GazeboMavlinkInterface::IRLockCallback(IRLockPtr& irlock_message) {
 
   mavlink_message_t msg;
   mavlink_msg_landing_target_encode_chan(1, 200, MAVLINK_COMM_0, &msg, &sensor_msg);
+  mavlink_interface_->send_mavlink_message(&msg);
+}
+
+void GazeboMavlinkInterface::targetReleativeCallback(TargetRelativePtr& targetRelative_message) {
+  
+  mavlink_target_relative_t sensor_msg;
+  sensor_msg.timestamp = targetRelative_message->time_usec();
+  sensor_msg.x = targetRelative_message->pos_x();
+  sensor_msg.y = targetRelative_message->pos_y();
+  sensor_msg.z = targetRelative_message->pos_z();
+
+  sensor_msg.type = LANDING_TARGET_TYPE_VISION_FIDUCIAL;
+  sensor_msg.frame = TARGET_OBS_FRAME_BODY_FRD;
+
+  sensor_msg.q_sensor[0] = targetRelative_message->attitude_q_w();
+  sensor_msg.q_sensor[1] = targetRelative_message->attitude_q_x();
+  sensor_msg.q_sensor[2] = targetRelative_message->attitude_q_y();
+  sensor_msg.q_sensor[3] = targetRelative_message->attitude_q_z();
+
+  sensor_msg.pos_std[0] = targetRelative_message->std_x();
+  sensor_msg.pos_std[1] = targetRelative_message->std_y();
+  sensor_msg.pos_std[2] = targetRelative_message->std_z();
+
+  sensor_msg.q_target[0] = targetRelative_message->orientation_q_w();
+  sensor_msg.q_target[1] = targetRelative_message->orientation_q_x();
+  sensor_msg.q_target[2] = targetRelative_message->orientation_q_y();
+  sensor_msg.q_target[3] = targetRelative_message->orientation_q_z();
+
+  sensor_msg.yaw_std = targetRelative_message->yaw_std();
+
+  mavlink_message_t msg;
+  mavlink_msg_target_relative_encode_chan(1, 200, MAVLINK_COMM_0, &msg, &sensor_msg);
+  mavlink_interface_->send_mavlink_message(&msg);
+}
+
+void GazeboMavlinkInterface::TargetGpsCallback(GpsPtr& gps_msg) {
+
+  mavlink_target_absolute_t gps_data;
+
+  gps_data.timestamp = gps_msg->time_usec();
+  gps_data.lat = gps_msg->latitude_deg() * 1e7;
+  gps_data.lon = gps_msg->longitude_deg() * 1e7;
+  gps_data.alt = gps_msg->altitude();
+  gps_data.position_std[0] = gps_msg->eph();
+  gps_data.position_std[1] = gps_msg->epv();
+  gps_data.vel[0] = gps_msg->velocity_north();
+  gps_data.vel[1] = gps_msg->velocity_east();
+  gps_data.vel[2] = -gps_msg->velocity_up();
+
+  gps_data.vel_std[0] = 0.2;
+  gps_data.vel_std[1] = 0.2;
+  gps_data.vel_std[2] = 0.5;
+
+  // Position and velocity estimation
+  gps_data.sensor_capabilities = 3;
+
+  mavlink_message_t msg;
+  mavlink_msg_target_absolute_encode_chan(1, 200, MAVLINK_COMM_0, &msg, &gps_data);
   mavlink_interface_->send_mavlink_message(&msg);
 }
 
@@ -1082,12 +1141,11 @@ void GazeboMavlinkInterface::VisionCallback(OdomPtr& odom_message) {
   }
 }
 
-void GazeboMavlinkInterface::MagnetometerCallback(MagnetometerPtr& mag_msg, const int& id) {
-
+void GazeboMavlinkInterface::MagnetometerCallback(MagnetometerPtr& mag_msg) {
   SensorData::Magnetometer mag_data;
   mag_data.mag_b = Eigen::Vector3d(mag_msg->magnetic_field().x(),
     mag_msg->magnetic_field().y(), mag_msg->magnetic_field().z());
-  mavlink_interface_->UpdateMag(mag_data, id);
+  mavlink_interface_->UpdateMag(mag_data);
 }
 
 void GazeboMavlinkInterface::AirspeedCallback(AirspeedPtr& airspeed_msg, const int& id) {
